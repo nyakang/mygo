@@ -12,6 +12,15 @@ type TableColumn struct {
 	// order and the widths the user gives the columns (ListState.Columns)
 	// and for the sort (ListState.Sort and SortBy): the Title when empty.
 	Title, ID string
+	// Subtitle is an optional second line in the same native header cell.
+	// It shares the Title's column ID, resize/drag area, sort and context menu.
+	// A blank Subtitle preserves the original single-line header height.
+	Subtitle string
+	// SubtitleIcon is an optional, text-drawn type glyph preceding the
+	// subtitle. HeaderBadge labels a field attribute beside the title.
+	// Both belong to the same native header cell and are display-only.
+	SubtitleIcon string
+	HeaderBadge  string
 	// Width is the column's width in DIPs, or 0 to share the room the
 	// others leave. The user resizes the column by dragging the right edge
 	// of its header, between MinWidth and MaxWidth (none for 0), and fits
@@ -161,6 +170,13 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	t := c.theme
 	// The height of the header, and the least of the rows.
 	tableRow := t.Space(8)
+	headerHeight := tableRow
+	for _, col := range columns {
+		if col.Subtitle != "" {
+			headerHeight = max(headerHeight, t.Space(15))
+			break
+		}
+	}
 	table := coreColumn(c).Role(RoleTable).Focusable().Clip()
 	table.widget = "Table"
 	if kind == treeTableList {
@@ -256,7 +272,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	var list *node
 	table.Children(func() {
 		// The header, which scrolls sideways with the rows.
-		head := coreRow(c).Height(tableRow).Shrink(0).AlignItems(Stretch).Role(RoleRow).Clip()
+		head := coreRow(c).Height(headerHeight).Shrink(0).AlignItems(Stretch).Role(RoleRow).Clip()
 		if menu := s.HeaderMenu; menu != nil {
 			// The part of the header past the columns, as AppKit's
 			// clickedColumn -1.
@@ -265,7 +281,27 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 		head.Children(func() {
 			heads := cells(RoleColumnHeader, func(j int) {
 				col := &columns[j]
-				coreText(c, col.Title).SingleLine().FontWeight(600).TextColor(t.TextMuted)
+				if col.Subtitle == "" {
+					coreText(c, col.Title).SingleLine().FontWeight(600).TextColor(t.TextMuted)
+				} else {
+					// Draw both labels inside the original keyed header cell: a
+					// single element still owns drag/resize, horizontal scroll,
+					// sorting and HeaderMenu. Never float a second row above it.
+					coreColumn(c).Gap(t.Space(0.5)).MinWidth(0).Grow(1).Children(func() {
+						coreRow(c).MinWidth(0).Gap(t.Space(1)).AlignItems(Center).Children(func() {
+							coreText(c, col.Title).SingleLine().FontWeight(600).TextColor(t.TextMuted)
+							if col.HeaderBadge != "" {
+								coreText(c, col.HeaderBadge).SingleLine().FontSize(t.FontSize * 0.7).TextColor(t.Accent)
+							}
+						})
+						coreRow(c).MinWidth(0).Gap(t.Space(1)).AlignItems(Center).Children(func() {
+							if col.SubtitleIcon != "" {
+								coreText(c, col.SubtitleIcon).SingleLine().FontSize(t.FontSize * 0.8).FontWeight(600).TextColor(t.Accent)
+							}
+							coreText(c, col.Subtitle).SingleLine().FontSize(t.FontSize * 0.8).TextColor(t.TextMuted)
+						})
+					})
+				}
 				if at, descending := s.sortPlace(col); at >= 0 {
 					place := 0
 					if s.SortBy != nil && len(*s.SortBy) > 1 {
