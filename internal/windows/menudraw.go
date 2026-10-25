@@ -49,29 +49,34 @@ var (
 	procSystemParametersInfoForDpi = user32.NewProc("SystemParametersInfoForDpi")
 )
 
-// Popup items' metrics, in DIPs, after WinUI's MenuFlyoutItem: a highlight
-// inset from the menu's sides with rounded corners, the text past its
-// padding, and marks (checks, the submenus' chevrons) in a column of
-// their own.
+// Popup metrics are DIPs, scaled with the owning window's DPI. Compact
+// keeps Win32 HMENUs and owner-draw interaction while matching the tighter
+// layout used by database IDEs. Default Fluent metrics remain unchanged.
 const (
-	menuItemHeight      = 32
-	menuSeparatorHeight = 9
-	menuInset           = 4  // the highlight from the menu's sides
-	menuPadding         = 12 // the text from the highlight's sides
-	menuRadius          = 4
-	menuMarkColumn      = 16 + 12 // a check, and the gap after it
-	menuAccelGap        = 32      // the least between a label and its shortcut
-	menuChevron         = 12
-	menuGlyphSize       = 12
+	menuChevron   = 12
+	menuGlyphSize = 12
 )
 
-// The menu bar's, which grows to WinUI's room.
-const (
-	menuBarHeight = 30
-	menuBarExtra  = 8 // wider than Windows' items
-	menuBarInsetX = 2
-	menuBarInsetY = 3
-)
+type menuMetrics struct {
+	itemHeight, separatorHeight, inset, padding, radius int
+	markColumn, accelGap                                int
+	barHeight, barExtra, barInsetX, barInsetY           int
+}
+
+func menuSizing() menuMetrics {
+	if platform.CurrentMenuDensity() == platform.MenuCompact {
+		return menuMetrics{
+			itemHeight: 24, separatorHeight: 5, inset: 2, padding: 8,
+			radius: 3, markColumn: 24, accelGap: 20,
+			barHeight: 26, barExtra: 4, barInsetX: 2, barInsetY: 2,
+		}
+	}
+	return menuMetrics{
+		itemHeight: 32, separatorHeight: 9, inset: 4, padding: 12,
+		radius: 4, markColumn: 28, accelGap: 32,
+		barHeight: 30, barExtra: 8, barInsetX: 2, barInsetY: 3,
+	}
+}
 
 // fluentMenus reports whether MyGo draws the menus in Windows 11's style.
 func fluentMenus() bool { return windows11() }
@@ -115,10 +120,10 @@ func (l *menuLook) ftype() uint32 {
 // and below its last.
 func (l *menuLook) padding(dpi int) (top, bottom int32) {
 	if l.first {
-		top = toPx(menuInset, dpi)
+		top = toPx(menuSizing().inset, dpi)
 	}
 	if l.last {
-		bottom = toPx(menuInset, dpi)
+		bottom = toPx(menuSizing().inset, dpi)
 	}
 	return top, bottom
 }
@@ -244,6 +249,15 @@ type nonClientMetrics struct {
 // menuFace returns the fonts of popup items at dpi: the menu font of the
 // system, which follows the size of text of Accessibility, from its 12
 // pixels to WinUI's 14, in Segoe UI Variable where it is Segoe UI.
+// menuFontHeight preserves the OS menu font size in compact mode, including
+// the accessible font scale chosen by the system.
+func menuFontHeight(height int32) int32 {
+	if platform.CurrentMenuDensity() == platform.MenuCompact {
+		return height
+	}
+	return int32(math.Round(float64(height) * 14 / 12))
+}
+
 func (b *Backend) menuFace(dpi int) menuFonts {
 	if f, ok := b.menuFonts[dpi]; ok {
 		return f
@@ -255,7 +269,7 @@ func (b *Backend) menuFace(dpi int) menuFonts {
 	if r, _, _ := procSystemParametersInfoForDpi.Call(spiGetNonClientMetrics, uintptr(ncm.Size), uintptr(unsafe.Pointer(&ncm)), 0, uintptr(dpi)); r != 0 {
 		lf = ncm.MenuFont
 	}
-	lf.Height = int32(math.Round(float64(lf.Height) * 14 / 12))
+	lf.Height = menuFontHeight(lf.Height)
 	f := menuFonts{}
 	if string(utf16Decode(lf.FaceName[:])) == "Segoe UI" {
 		v := lf
@@ -372,45 +386,47 @@ func textWidth(dc, font uintptr, text string) int32 {
 func (b *Backend) measureItem(hwnd uintptr, l *menuLook, mis *measureItemStruct) {
 	dpi := dpiOf(hwnd)
 	top, bottom := l.padding(dpi)
+	metrics := menuSizing()
 	if l.separator {
-		mis.ItemWidth, mis.ItemHeight = 0, uint32(toPx(menuSeparatorHeight, dpi)+top+bottom)
+		mis.ItemWidth, mis.ItemHeight = 0, uint32(toPx(metrics.separatorHeight, dpi)+top+bottom)
 		return
 	}
 	f := b.menuFace(dpi)
 	dc, _, _ := procGetDC.Call(0)
 	defer procReleaseDC.Call(0, dc)
-	w := toPx(menuInset+menuPadding, dpi)*2 + textWidth(dc, f.text, l.label)
+	w := toPx(metrics.inset+metrics.padding, dpi)*2 + textWidth(dc, f.text, l.label)
 	if l.column {
-		w += toPx(menuMarkColumn, dpi)
+		w += toPx(metrics.markColumn, dpi)
 	}
 	if l.icons {
 		w += toPx(menuIconColumn, dpi)
 	}
 	if l.accel != "" {
-		w += toPx(menuAccelGap, dpi) + textWidth(dc, f.text, l.accel)
+		w += toPx(metrics.accelGap, dpi) + textWidth(dc, f.text, l.accel)
 	}
 	if l.submenu {
-		w += toPx(menuAccelGap/2+menuChevron, dpi)
+		w += toPx(metrics.accelGap/2+menuChevron, dpi)
 	}
 	// Windows adds the width of its checks to that of every item.
 	check, _, _ := procGetSystemMetricsForDpi.Call(smCxMenuCheck, uintptr(dpi))
 	w = max(w-int32(check)+1, 0)
-	mis.ItemWidth, mis.ItemHeight = uint32(w), uint32(toPx(menuItemHeight, dpi)+top+bottom)
+	mis.ItemWidth, mis.ItemHeight = uint32(w), uint32(toPx(metrics.itemHeight, dpi)+top+bottom)
 }
 
 func (b *Backend) drawItem(hwnd uintptr, l *menuLook, d *drawItemStruct) {
 	dpi := dpiOf(hwnd)
 	p := b.menuPalette()
+	metrics := menuSizing()
 	r := d.Item
 	state := d.ItemState
 	selected := state&odsSelected != 0 && !l.separator
-	inset := toPx(menuInset, dpi)
+	inset := toPx(menuSizing().inset, dpi)
 	top, bottom := l.padding(dpi)
 	var plate *rect
 	if selected {
 		plate = &rect{inset, top, r.Right - r.Left - inset, r.Bottom - r.Top - bottom}
 	}
-	paintItem(d.DC, r, p.back, plate, p.plate, float64(toPx(menuRadius, dpi)), func(img *bitmap, r rect) {
+	paintItem(d.DC, r, p.back, plate, p.plate, float64(toPx(metrics.radius, dpi)), func(img *bitmap, r rect) {
 		dc := img.dc
 		r.Top, r.Bottom = r.Top+top, r.Bottom-bottom
 		if l.separator {
@@ -432,8 +448,8 @@ func (b *Backend) drawItem(hwnd uintptr, l *menuLook, d *drawItemStruct) {
 		}
 		f := b.menuFace(dpi)
 		procSetBkMode.Call(dc, 1) // TRANSPARENT
-		x := r.Left + toPx(menuInset+menuPadding, dpi)
-		right := r.Right - toPx(menuInset+menuPadding, dpi)
+		x := r.Left + toPx(metrics.inset+metrics.padding, dpi)
+		right := r.Right - toPx(metrics.inset+metrics.padding, dpi)
 		glyph := func(g uint16, box rect, color uint32) {
 			old, _, _ := procSelectObject.Call(dc, f.glyphs)
 			procSetTextColor.Call(dc, uintptr(color))
@@ -448,7 +464,7 @@ func (b *Backend) drawItem(hwnd uintptr, l *menuLook, d *drawItemStruct) {
 				}
 				glyph(g, rect{x, r.Top, x + toPx(16, dpi), r.Bottom}, fore)
 			}
-			x += toPx(menuMarkColumn, dpi)
+			x += toPx(metrics.markColumn, dpi)
 		}
 		if l.icons {
 			box := toPx(platform.MenuIconSize, dpi)
