@@ -172,8 +172,9 @@ func (w *window) drawMenuBar(lp uintptr) {
 func (w *window) measureMenuBarItem(lp uintptr) {
 	mis := (*measureItemStruct)(native(lp)) // UAHMEASUREMENUITEM starts with it
 	dpi := dpiOf(w.hwnd)
-	mis.ItemWidth += uint32(toPx(menuBarExtra, dpi))
-	mis.ItemHeight = max(mis.ItemHeight, uint32(toPx(menuBarHeight, dpi)))
+	m := menuSizing()
+	mis.ItemWidth += uint32(toPx(m.barExtra, dpi))
+	mis.ItemHeight = max(mis.ItemHeight, uint32(toPx(m.barHeight, dpi)))
 }
 
 // drawMenuBarItem paints an item of the bar: its backplate and its label.
@@ -210,12 +211,13 @@ func (w *window) drawMenuBarItem(lp uintptr) {
 	const objFont = 6
 	font, _, _ := procGetCurrentObject.Call(dc, objFont)
 	dpi := dpiOf(w.hwnd)
-	x, y := toPx(menuBarInsetX, dpi), toPx(menuBarInsetY, dpi)
+	metrics := menuSizing()
+	x, y := toPx(metrics.barInsetX, dpi), toPx(metrics.barInsetY, dpi)
 	box := &rect{x, y, r.Right - r.Left - x, r.Bottom - r.Top - y}
 	if plate == back {
 		box = nil
 	}
-	paintItem(dc, r, back, box, plate, float64(toPx(menuRadius, dpi)), func(dc uintptr, r rect) {
+	paintItem(dc, r, back, box, plate, float64(toPx(metrics.radius, dpi)), func(dc uintptr, r rect) {
 		old, _, _ := procSelectObject.Call(dc, font)
 		label(dc, r)
 		procSelectObject.Call(dc, old)
