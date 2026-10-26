@@ -39,6 +39,10 @@ type ListState struct {
 	// Handle names this list independently of its per-pass node.
 	Handle
 
+	// TableStyle optionally decorates a Table or OutlineTable. Nil preserves
+	// the default appearance; ordinary Lists ignore it.
+	TableStyle *TableStyle
+
 	// Key returns an identity for the item row i shows, such as its ID:
 	// comparable, and unique among the rows. Without it, a row is its
 	// index. With it, the state of a row (focus, text being edited, …)
