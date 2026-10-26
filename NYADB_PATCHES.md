@@ -1,6 +1,17 @@
 # NyaDB MyGo maintenance branch
 
-This repository is a fork of [egoist/mygo](https://github.com/egoist/mygo). The upstream `main` branch is kept suitable for GitHub **Sync fork**. NyaDB-specific changes belong on a separate `nyadb/v0.6.3` branch based on the upstream `v0.6.3` tag.
+This repository is a fork of [egoist/mygo](https://github.com/egoist/mygo). The upstream `main` branch is kept suitable for GitHub **Sync fork**. NyaDB-specific changes belong on version-specific `nyadb/vX.Y.Z` branches based on their corresponding upstream release tags.
+
+## NyaDB v0.6.4 compatibility release
+
+Based on upstream `v0.6.4` (commit `6255ea40139d06e0762a7c4a32626148ba410478`).
+The `nyadb/v0.6.4` branch independently reapplies three existing NyaDB changes:
+native double-line table headers, opt-in Windows compact menu density, and opt-in
+table stripes/grid. All three cherry-picked without conflicts.
+The upstream `main` branch stays free of NyaDB-specific changes.
+
+Previous patch commits: `5c761105`, `005838d6`, `0a7d0b1d`.
+Upstream v0.6.4 requires Go 1.27.3.
 
 ## Patch on `nyadb/v0.6.3`
 
