@@ -262,6 +262,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 					box.DrawOver(cursorBorder(table, t.Accent))
 				}
 			}
+			decorateTableCell(box, s.TableStyle, role == RoleColumnHeader)
 			if drag.fit != "" && drag.fit == col.id() {
 				fitting = append(fitting, box)
 			}
@@ -326,6 +327,13 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 		list.rowMinW = least
 		head.followX = list
 		buildList(c, list, table, s, n, func(i int) {
+			if style := s.TableStyle; style != nil && style.AlternateRowColor.A != 0 &&
+				(int64(i)&1) != (style.RowOffset&1) && (s.Header == nil || !s.Header(i)) &&
+				(cellSel || c.row == nil || !c.row.chosen) {
+				// The list's actual row owns the background, including cell
+				// padding, row headers and remaining horizontal space.
+				c.parent.Background(style.AlternateRowColor)
+			}
 			row := coreRow(c).MinHeight(tableRow).AlignItems(Stretch)
 			// The list's element holding the row is the row.
 			row.Role(RoleNone)
@@ -477,6 +485,10 @@ func tableHeader(c *context, table, h *node, j int, s *ListState, drag *tableDra
 			s.setWidth(col, w+dx)
 		}
 		edge.Draw(func(p *Painter, r Rect) {
+			if style := s.TableStyle; style != nil && style.ColumnLines && style.GridColor.A != 0 &&
+				!edge.Hovered() && !edge.Pressed() {
+				return // the full-height header grid already draws this edge
+			}
 			x := r.X + r.W - 0.5
 			if rtl {
 				x = r.X + 0.5
