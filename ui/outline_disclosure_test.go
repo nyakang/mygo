@@ -37,7 +37,7 @@ func TestOutlineTrianglePathDirections(t *testing.T) {
 
 func TestOutlineTriangleClickKeyboardAndAccess(t *testing.T) {
 	selected := -1
-	s := OutlineState[string]{Disclosure: OutlineTriangle, DisclosureSize: 10, Indent: 17}
+	s := OutlineState[string]{Disclosure: OutlineTriangle, DisclosureSize: 10, Indent: 14, LeadingInset: 14}
 	s.List.Selected = &selected
 	tt := coreNewTester(func(c *context) {
 		coreOutline(c, &s, []string{"src"}, children, func(path string) {
