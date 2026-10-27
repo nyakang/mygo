@@ -35,6 +35,9 @@ type OutlineState[K comparable] struct {
 	// Indent is the width in DIPs each level adds before a row's arrow,
 	// the theme's Space(4) when zero. It must not be negative.
 	Indent float32
+	// LeadingInset reserves space before the root disclosure on every row,
+	// leaving the full selected-row background untouched. Zero means none.
+	LeadingInset float32
 	// Disclosure chooses the indicator shape (chevron by default).
 	Disclosure OutlineDisclosure
 	// DisclosureSize sets its clickable gutter width/height in DIPs; zero
@@ -65,8 +68,8 @@ func (s *OutlineState[K]) Depth(row int) int { return s.rows[row].depth }
 // flatten lists the rows the outline shows: roots, and the children of
 // the items open.
 func (s *OutlineState[K]) flatten(roots []K, children func(K) []K) {
-	if !(s.Indent >= 0 && s.DisclosureSize >= 0) {
-		panic("ui: an OutlineState's Indent and DisclosureSize must not be negative")
+	if !(s.Indent >= 0 && s.DisclosureSize >= 0 && s.LeadingInset >= 0) {
+		panic("ui: an OutlineState's Indent, DisclosureSize and LeadingInset must not be negative")
 	}
 	s.rows = s.rows[:0]
 	var walk func(items []K, depth, parent int)
@@ -173,6 +176,11 @@ func (s *OutlineState[K]) prefix(c *context, i int, children func(K) []K, conten
 			p.level, p.expandable, p.expanded = r.depth+1, r.branch, open
 			break
 		}
+	}
+	if s.LeadingInset > 0 {
+		// The row's inter-item gap contributes Space(1); do not count
+		// it twice when reserving this fixed disclosure gutter.
+		coreBox(c).Width(max(0, s.LeadingInset-t.Space(1))).Shrink(0)
 	}
 	if r.depth > 0 {
 		indent := s.Indent
