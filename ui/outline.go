@@ -5,6 +5,15 @@ import (
 	"time"
 )
 
+// OutlineDisclosure selects the expand/collapse indicator visual.
+// The default keeps the original stroked chevron.
+type OutlineDisclosure uint8
+
+const (
+	OutlineChevron OutlineDisclosure = iota
+	OutlineTriangle
+)
+
 // OutlineState is the state of an Outline or an OutlineTable: its rows, as
 // a List's, and the items that are open, showing their children. The rows'
 // keys are the items, of type K, so that their place, choice and state
@@ -26,7 +35,12 @@ type OutlineState[K comparable] struct {
 	// Indent is the width in DIPs each level adds before a row's arrow,
 	// the theme's Space(4) when zero. It must not be negative.
 	Indent float32
-	rows   []outlineRow[K]
+	// Disclosure chooses the indicator shape (chevron by default).
+	Disclosure OutlineDisclosure
+	// DisclosureSize sets its clickable gutter width/height in DIPs; zero
+	// keeps Space(4) from the theme. Negative values are invalid.
+	DisclosureSize float32
+	rows           []outlineRow[K]
 }
 
 // outlineRow is a row of an outline: its item, how deep it is, the row of
@@ -51,8 +65,8 @@ func (s *OutlineState[K]) Depth(row int) int { return s.rows[row].depth }
 // flatten lists the rows the outline shows: roots, and the children of
 // the items open.
 func (s *OutlineState[K]) flatten(roots []K, children func(K) []K) {
-	if !(s.Indent >= 0) {
-		panic("ui: an OutlineState's Indent must not be negative")
+	if !(s.Indent >= 0 && s.DisclosureSize >= 0) {
+		panic("ui: an OutlineState's Indent and DisclosureSize must not be negative")
 	}
 	s.rows = s.rows[:0]
 	var walk func(items []K, depth, parent int)
@@ -167,7 +181,11 @@ func (s *OutlineState[K]) prefix(c *context, i int, children func(K) []K, conten
 		}
 		coreBox(c).Width(float32(r.depth) * indent).Shrink(0)
 	}
-	arrow := coreBox(c).Size(t.Space(4), t.Space(4)).Shrink(0).Role(RoleNone)
+	arrowSize := t.Space(4)
+	if s.DisclosureSize > 0 {
+		arrowSize = s.DisclosureSize
+	}
+	arrow := coreBox(c).Size(arrowSize, arrowSize).Shrink(0).Role(RoleNone)
 	if r.branch {
 		arrow.flags |= flagClickable | flagKeepFocus
 		arrow.afterInput(func() {
@@ -191,10 +209,28 @@ func (s *OutlineState[K]) prefix(c *context, i int, children func(K) []K, conten
 		turn := arrow.Animate("open", 90*b2f(open), 150*time.Millisecond)
 		rtl := arrow.rtl()
 		arrow.Draw(func(p *Painter, rect Rect) {
-			p.StrokePath(disclosurePath(rect, turn, rtl), 1.5, arrowColor(t, item))
+			if s.Disclosure == OutlineTriangle {
+				p.FillPath(outlineTrianglePath(rect, turn, rtl), arrowColor(t, item))
+			} else {
+				p.StrokePath(disclosurePath(rect, turn, rtl), 1.5, arrowColor(t, item))
+			}
 		})
 	}
 	content()
+}
+
+// outlineTrianglePath draws a small solid arrow inside its larger clickable
+// gutter, rotating right to down on expand and mirroring in RTL layouts.
+func outlineTrianglePath(r Rect, deg float32, rtl bool) *Path {
+	cx, cy, d := r.X+r.W/2, r.Y+r.H/2, min(r.W, r.H)*0.32
+	s := float32(1)
+	if rtl {
+		s, deg = -1, -deg
+	}
+	at := rotate(cx, cy, deg)
+	var path Path
+	path.MoveTo(at(-s*d, -0.88*d)).LineTo(at(s*d, 0)).LineTo(at(-s*d, 0.88*d)).Close()
+	return &path
 }
 
 // closed moves the choice to row i as it closes, from a row inside it,
