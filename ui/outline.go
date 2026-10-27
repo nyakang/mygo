@@ -38,6 +38,10 @@ type OutlineState[K comparable] struct {
 	// LeadingInset reserves space before the root disclosure on every row,
 	// leaving the full selected-row background untouched. Zero means none.
 	LeadingInset float32
+	// RowContextMenu handles a context click anywhere across an Outline
+	// row, including its indentation/disclosure gutter and blank trailing area.
+	// A child widget's own context menu takes precedence when present.
+	RowContextMenu func(item K, menu *Menu)
 	// Disclosure chooses the indicator shape (chevron by default).
 	Disclosure OutlineDisclosure
 	// DisclosureSize sets its clickable gutter width/height in DIPs; zero
@@ -129,6 +133,10 @@ func coreOutline[K comparable](c *context, s *OutlineState[K], roots []K, childr
 	buildList(c, e, e, &s.List, len(s.rows), func(i int) {
 		r := coreRow(c).AlignItems(Center).Gap(c.theme.Space(1)).Padding(c.theme.Space(1), c.theme.Space(2))
 		r.Role(RoleNone)
+		if s.RowContextMenu != nil {
+			key := s.rows[i].item
+			r.ContextMenu(func(m *Menu) { s.RowContextMenu(key, m) })
+		}
 		r.Children(func() { s.prefix(c, i, children, func() { row(s.rows[i].item) }) })
 	}, treeList)
 	e.afterInput(func() { s.keys(e, children) })

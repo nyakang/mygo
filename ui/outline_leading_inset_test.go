@@ -40,3 +40,25 @@ func TestOutlineLeadingInsetRejectsNegative(t *testing.T) {
 		coreOutline(c, &s, []string{"src"}, children, func(string) {})
 	}, 400, 200)
 }
+
+func TestOutlineRowContextMenuIncludesGutterAndTrailingArea(t *testing.T) {
+	s := OutlineState[string]{LeadingInset: 14, Indent: 14, Disclosure: OutlineTriangle, DisclosureSize: 10}
+	s.RowContextMenu = func(item string, m *Menu) { m.Item("Open " + item) }
+	tt := coreNewTester(func(c *context) {
+		coreOutline(c, &s, []string{"src"}, children, func(item string) {
+			coreText(c, baseName(item))
+		}).Grow(1)
+	}, 320, 180)
+	root, ok := tt.Find("src")
+	if !ok {
+		t.Fatal("missing root row")
+	}
+	for _, x := range []float32{8, 20, 250} {
+		tt.RightClickAt(x, root.Y+root.H/2)
+		if menu := tt.Menu(); len(menu) == 0 || menu[0] != "Open src" {
+			t.Fatalf("right click x=%.1f had no row menu: %v", x, menu)
+		}
+		tt.CloseMenu()
+		tt.Frame()
+	}
+}
