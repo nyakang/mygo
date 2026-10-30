@@ -2,6 +2,48 @@
 
 This repository is a fork of [egoist/mygo](https://github.com/egoist/mygo). The upstream `main` branch is kept suitable for GitHub **Sync fork**. NyaDB-specific changes belong on version-specific `nyadb/vX.Y.Z` branches based on their corresponding upstream release tags.
 
+## NyaDB v0.7.3 compatibility release
+
+Based on upstream `v0.7.3` (commit
+`6f28d7bb07b31177cf218e51586f6a5e99b38016`), released October 29, 2026.
+The immutable Go module tag is `v0.7.3-nyadb.1` on `nyadb/v0.7.3`.
+The upstream module path and minimum Go version (1.27.3) remain unchanged.
+
+Reapplied the complete `v0.6.4-nyadb.4` customization: table metadata headers,
+opt-in stripes/grid, Windows compact menus, configurable outline triangles,
+full-width outline selection and disclosure-gutter context menus. The table
+and outline patches apply without code conflicts. Windows menu painting is
+adapted to upstream's bitmap callbacks, retaining the new menu-icon rendering
+while using the existing default/compact density metrics. The `main` branch
+tracks upstream separately from this release baseline.
+
+Verification on Linux: `GOWORK=off CGO_ENABLED=0 go test ./...`, full
+Linux/Windows/Darwin builds and vet, production-tag vet, and js/wasm vet pass.
+NyaDB's candidate dependency passes its full tests, Go vet, MyGo UI vet,
+localization validation, and Linux/Windows/Darwin builds. Desktop GUI checks
+on Windows and macOS are not part of these compilation results.
+
+Release-size comparison against the unmodified v0.7.3 baseline, with cgo off,
+`-trimpath`, `mygo_noinspector`, stripped symbols and `production=1`:
+
+| App and platform | Upstream bytes | Fork bytes | Difference |
+| --- | ---: | ---: | ---: |
+| linux/amd64/counter-native | 9,564,423 | 9,564,423 | +0 |
+| linux/amd64/hello | 9,613,575 | 9,613,575 | +0 |
+| windows/amd64/counter-native | 9,876,480 | 9,881,088 | +4,608 |
+| windows/amd64/hello | 9,970,688 | 9,974,784 | +4,096 |
+| darwin/arm64/counter-native | 9,372,770 | 9,372,866 | +96 |
+| darwin/arm64/hello | 9,561,634 | 9,561,634 | +0 |
+
+Windows growth comes from the retained compact-menu policy in shared native
+menu measurement/painting and `menuFontHeight`, plus metadata/alignment.
+The Windows counter's `-dumpdep` and `nm -size` show `menuFace` reaching
+`menuFontHeight` and the existing default menu paths retaining density
+branches. `ListState` also retains `TableStyle` type metadata, as before;
+unused table-grid drawing is not linked. The Darwin counter's 96-byte growth
+is type metadata. Linux example sizes remain unchanged. Logs and symbol/size
+comparisons live in NyaDB's ignored `temp/research/mygo-upgrade-20261030/`.
+
 ## NyaDB v0.6.4 compatibility release
 
 Based on upstream `v0.6.4` (commit `6255ea40139d06e0762a7c4a32626148ba410478`).
