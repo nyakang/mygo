@@ -1,5 +1,7 @@
 package ui
 
+import "slices"
+
 // ColumnRange is the columns of the block of cells a Table chooses
 // (ListState.CellSelect), by column ID (TableColumn.ID, or Title).
 type ColumnRange struct {
@@ -60,7 +62,30 @@ func (s *ListState) colIndex(id string) int {
 // RowHeader column when it names none, and Cells.Anchor to the Cursor when
 // it names none.
 func (s *ListState) fixCells() {
+	if s.ColumnSelection != nil {
+		ids := s.ColumnSelection[:0]
+		for _, id := range s.ColumnSelection {
+			if k := s.colIndex(id); k >= 0 && !s.tableCols[k].rowHeader && !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
+		}
+		s.ColumnSelection = ids
+		s.headerBase = slices.DeleteFunc(s.headerBase, func(id string) bool {
+			k := s.colIndex(id)
+			return k < 0 || s.tableCols[k].rowHeader
+		})
+		if s.colIndex(s.headerPivot) < 0 {
+			s.headerPivot, s.headerBase = "", nil
+		}
+	} else {
+		// Applications clear whole-column mode when replacing a page or
+		// assigning Cells directly. Its previous Shift base must go too.
+		s.headerPivot, s.headerBase = "", nil
+	}
 	c := &s.Cells
+	if s.ColumnSelection != nil && !slices.Contains(s.ColumnSelection, c.Cursor) && len(s.ColumnSelection) > 0 {
+		c.Cursor = s.ColumnSelection[len(s.ColumnSelection)-1]
+	}
 	if k := s.colIndex(c.Cursor); k < 0 || s.tableCols[k].rowHeader {
 		c.Cursor = ""
 		if k := s.nextCol(-1, 1); k >= 0 {
@@ -98,6 +123,12 @@ func (s *ListState) block() (lo, hi int) {
 
 // inBlock reports whether the column at place k is one of the block's.
 func (s *ListState) inBlock(k int) bool {
+	if k < 0 || k >= len(s.tableCols) || s.tableCols[k].rowHeader {
+		return false
+	}
+	if s.ColumnSelection != nil {
+		return slices.Contains(s.ColumnSelection, s.tableCols[k].id)
+	}
 	lo, hi := s.block()
 	return k >= lo && k <= hi && !s.tableCols[k].rowHeader
 }
@@ -138,10 +169,9 @@ func (s *ListState) CellSelected(row, col int) bool {
 // Table chooses (CellSelect), in the order shown in the last frame,
 // without RowHeader columns.
 func (s *ListState) SelectedColumns() []string {
-	lo, hi := s.block()
 	var ids []string
-	for k := lo; k <= hi; k++ {
-		if col := s.tableCols[k]; !col.rowHeader {
+	for k, col := range s.tableCols {
+		if s.inBlock(k) {
 			ids = append(ids, col.id)
 		}
 	}
@@ -163,8 +193,11 @@ func (s *ListState) SelectColumns(from, to string) {
 
 // setCells makes c the columns of the block, reporting a new choice.
 func (f *listFrame) setCells(c ColumnRange) {
-	if f.s.Cells != c {
+	if f.s.Cells != c || f.s.ColumnSelection != nil {
 		f.s.Cells = c
+		f.s.ColumnSelection = nil
+		f.s.headerBase = nil
+		f.s.headerPivot = ""
 		f.changed()
 	}
 }
@@ -180,6 +213,9 @@ func (f *listFrame) columnAt(x, y float32) int {
 			continue
 		}
 		lx, _ := st.local(x, y)
+		if lx >= 0 && lx < st.w {
+			return k // A shared edge belongs to the following column.
+		}
 		d := max(-lx, lx-st.w, 0)
 		if at < 0 || d < best {
 			at, best = k, d
@@ -190,6 +226,16 @@ func (f *listFrame) columnAt(x, y float32) int {
 
 // clickCell sets the columns of the block for a click with mods on a row
 // at the window's point (x, y): those of a RowHeader cell are all.
+// pointerCellClick reports a pointer-origin, undragged activation after the
+// native row selection has settled. Registered only by a Table using it.
+func (f *listFrame) pointerCellClick(row int, x, y float32, mods Modifiers) {
+	if click := f.s.OnCellClick; click != nil && f.choosesCells() && !f.isHeader(row) {
+		if k := f.columnAt(x, y); k >= 0 && !f.s.tableCols[k].rowHeader {
+			click(row, f.s.tableCols[k].col, mods)
+		}
+	}
+}
+
 func (f *listFrame) clickCell(x, y float32, mods Modifiers) {
 	s := f.s
 	k := f.columnAt(x, y)
@@ -203,6 +249,9 @@ func (f *listFrame) clickCell(x, y float32, mods Modifiers) {
 	case mods&Shift != 0:
 		c.Cursor, c.All = id, false
 	case mods&Cmd != 0:
+		if s.ColumnSelection != nil {
+			f.setCells(ColumnRange{Cursor: id, Anchor: id})
+		}
 		return
 	default:
 		c = ColumnRange{Cursor: id, Anchor: id}
@@ -259,7 +308,9 @@ func (f *listFrame) cellKeys(collapse, all bool) {
 	if all {
 		c.All = true
 	}
-	f.setCells(c)
+	if d != 0 || collapse || all {
+		f.setCells(c)
+	}
 }
 
 // revealColumn scrolls the table sideways as little as shows the column at

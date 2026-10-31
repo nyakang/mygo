@@ -274,6 +274,9 @@ type engine struct {
 	listDrag    func(rt *engine)
 	cellClick   func(f *listFrame, x, y float32, mods Modifiers)
 	cellInBlock func(f *listFrame, x, y float32) bool
+	// cellPointerClick is the optional post-selection Table callback. Keep
+	// column hit testing out of the shared List row-input link graph.
+	cellPointerClick func(f *listFrame, row int, x, y float32, mods Modifiers)
 	// pressDragger is the element around the one pressed that drags a
 	// value, which takes the press as it moves (dragMove), or 0.
 	pressDragger uint64

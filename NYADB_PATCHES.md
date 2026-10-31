@@ -2,6 +2,59 @@
 
 This repository is a fork of [egoist/mygo](https://github.com/egoist/mygo). The upstream `main` branch is kept suitable for GitHub **Sync fork**. NyaDB-specific changes belong on version-specific `nyadb/vX.Y.Z` branches based on their corresponding upstream release tags.
 
+## Native grid headers: v0.7.3-nyadb.2
+
+Based on `nyadb/v0.7.3` at the immutable `.1` commit
+`922da57bd8b2ec6cf1576441afbe7f6565a536ca`. The new immutable Go module tag
+is `v0.7.3-nyadb.2` on `nyadb/v0.7.3`. The module path and upstream
+version remain unchanged; this is a Go-only fork patch, not an npm release.
+The inherited npm release workflow excludes `v*-nyadb.*` tags; publishing
+a new immutable Go tag does not publish upstream npm packages.
+
+Adds opt-in whole/discrete column selection, native COMMENT tooltips and a
+third header line, an independent hover action menu, and an undragged cell
+click callback. Header interactions retain keyed identity, native resize,
+reorder and scrolling. Empty tables use the same native headers with no
+synthetic record. Column IDs are reconciled after removal and private Shift
+state is revoked on direct selection reset. A ListState can be reused by a
+new window/Tester, while two lists in the same context are still rejected.
+See [native header API and lifecycle](docs/nyadb-grid-headers.md).
+
+The implementation is independently developed from runtime behavior and
+the existing MyGo sources. No proprietary code, icons or screenshots enter
+the patch. NyaDB retains its own theme and icon set.
+
+Verification with cgo disabled: full Go tests, Linux/Windows amd64 and
+Darwin arm64 builds/vet, production-tag vet, and js/wasm vet excluding the
+CLI pass. Native header tests advance Tester time rather than sleeping.
+Linux runtime checks cover header selection, menus, COMMENTs, empty tables,
+width, zoom and both axes of native selection autoscroll. NyaDB's 180-row
+nonadjacent-column clipboard output matches the original byte for byte.
+
+Release-size comparison against `.1`, using identical `-buildvcs=false`,
+`-trimpath`, `mygo_noinspector`, stripped symbols and `production=1`:
+
+| App and platform | `.1` bytes | Candidate bytes | Difference |
+| --- | ---: | ---: | ---: |
+| linux/amd64/counter-native | 9,564,423 | 9,564,423 | +0 |
+| linux/amd64/hello | 9,613,575 | 9,613,575 | +0 |
+| windows/amd64/counter-native | 9,881,088 | 9,882,112 | +1,024 |
+| windows/amd64/hello | 9,974,272 | 9,974,272 | +0 |
+| darwin/arm64/counter-native | 9,372,866 | 9,372,978 | +112 |
+| darwin/arm64/hello | 9,561,634 | 9,561,634 | +0 |
+
+The new pointer-click dispatcher is registered by an opt-in Table; `nm`
+and `-dumpdep` confirm that column hit-testing machine code is not linked
+into counter-native. Its remaining Windows/Darwin growth is the small
+guarded row-input dispatch and callback/type metadata. Windows `.text`
+grows 160 virtual bytes and `.rdata` 696, rounded to two 512-byte sections;
+Darwin text grows 144 bytes, with metadata/alignment accounting for the
+112-byte file difference. Unused webview examples remain unchanged.
+An initial measurement included differing VCS build info; the controlled
+comparison removes it and verifies identical `go version -m` output.
+Logs, source hashes and symbol/section deltas are retained in NyaDB's
+ignored `temp/research/grid-alignment-20261031/mygo-validation/`.
+
 ## NyaDB v0.7.3 compatibility release
 
 Based on upstream `v0.7.3` (commit

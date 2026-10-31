@@ -350,6 +350,9 @@ func listRowValueInput(n *node) {
 			// a double click opened.
 			f.owner.Focus()
 		}
+		if click := rt.cellPointerClick; click != nil && f.s.OnCellClick != nil && st.rowPressed && !st.drag.far {
+			click(f, b.i, st.drag.ox, st.drag.oy, n.ClickModifiers())
+		}
 	}
 	if n.DoubleClicked() {
 		f.owner.st.markSubmitted()
