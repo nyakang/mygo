@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // TableColumn describes a column of a Table.
@@ -12,6 +13,20 @@ type TableColumn struct {
 	// order and the widths the user gives the columns (ListState.Columns)
 	// and for the sort (ListState.Sort and SortBy): the Title when empty.
 	Title, ID string
+	// Subtitle is an optional second line in the same native header cell.
+	// It shares the Title's column ID, resize/drag area, sort and context menu.
+	// A blank Subtitle preserves the original single-line header height.
+	Subtitle string
+	// SubtitleIcon is an optional, text-drawn type glyph preceding the
+	// subtitle. HeaderBadge labels a field attribute beside the title.
+	// Both belong to the same native header cell and are display-only.
+	SubtitleIcon string
+	HeaderBadge  string
+	// HeaderTooltip is shown after the pointer rests over the header. Empty
+	// strings have no tip. HeaderDetail is an optional final header line,
+	// independent of Subtitle; both stay inside the same native header cell.
+	HeaderTooltip string
+	HeaderDetail  string
 	// Width is the column's width in DIPs, or 0 to share the room the
 	// others leave. The user resizes the column by dragging the right edge
 	// of its header, between MinWidth and MaxWidth (none for 0), and fits
@@ -161,6 +176,32 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	t := c.theme
 	// The height of the header, and the least of the rows.
 	tableRow := t.Space(8)
+	headerHeight := tableRow
+	for _, col := range columns {
+		if col.Subtitle != "" {
+			headerHeight = max(headerHeight, t.Space(15))
+			break
+		}
+	}
+	for _, col := range columns {
+		if col.HeaderDetail != "" {
+			if col.Subtitle != "" {
+				headerHeight = max(headerHeight, t.Space(21))
+			} else {
+				headerHeight = max(headerHeight, t.Space(15))
+			}
+			// Font scaling is independent of spacing. Reserve the actual line
+			// metrics too, so large text cannot clip the final description.
+			metrics := (Font{Family: t.Font, Size: t.FontSize, Weight: 600}).Metrics()
+			small := (Font{Family: t.Font, Size: t.FontSize * 0.8}).Metrics()
+			lines := float32(1)
+			if col.Subtitle != "" {
+				lines++
+			}
+			headerHeight = max(headerHeight, metrics.Ascent+metrics.Descent+metrics.LineGap+
+				lines*(small.Ascent+small.Descent+small.LineGap)+t.Space(3)+lines*t.Space(0.5))
+		}
+	}
 	table := coreColumn(c).Role(RoleTable).Focusable().Clip()
 	table.widget = "Table"
 	if kind == treeTableList {
@@ -177,17 +218,19 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	// The block of cells chosen (CellSelect): its columns' places, from lo
 	// to hi, and the Cursor's.
 	cellSel := s.choosesCells()
-	lo, hi, cur := 0, -1, -1
+	cur := -1
 	s.tableCols = s.tableCols[:0]
 	if cellSel {
 		if c.rt.cellClick == nil {
 			c.rt.cellClick, c.rt.cellInBlock = (*listFrame).clickCell, (*listFrame).cellInBlockAt
 		}
+		if s.OnCellClick != nil && c.rt.cellPointerClick == nil {
+			c.rt.cellPointerClick = (*listFrame).pointerCellClick
+		}
 		for _, j := range order {
 			s.tableCols = append(s.tableCols, tableCol{id: columns[j].id(), col: j, rowHeader: columns[j].RowHeader})
 		}
 		s.fixCells()
-		lo, hi = s.block()
 		cur = s.colIndex(s.Cells.Cursor)
 	}
 	// The least width of the rows: the columns', those sharing the room
@@ -233,7 +276,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				// keys move from, has a border while the table has the
 				// focus. A cell holding the focus, as an editor in it, shows
 				// what it holds.
-				on := c.row.chosen && k >= lo && k <= hi && (!col.RowHeader || s.Cells.All)
+				on := c.row.chosen && (s.inBlock(k) || col.RowHeader && s.Cells.All)
 				at := k == cur && *s.cursor() == c.row.i
 				box.checked = 1 + int8(b2f(on))
 				switch {
@@ -246,6 +289,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 					box.DrawOver(cursorBorder(table, t.Accent))
 				}
 			}
+			decorateTableCell(box, s.TableStyle, role == RoleColumnHeader)
 			if drag.fit != "" && drag.fit == col.id() {
 				fitting = append(fitting, box)
 			}
@@ -256,7 +300,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 	var list *node
 	table.Children(func() {
 		// The header, which scrolls sideways with the rows.
-		head := coreRow(c).Height(tableRow).Shrink(0).AlignItems(Stretch).Role(RoleRow).Clip()
+		head := coreRow(c).Height(headerHeight).Shrink(0).AlignItems(Stretch).Role(RoleRow).Clip()
 		if menu := s.HeaderMenu; menu != nil {
 			// The part of the header past the columns, as AppKit's
 			// clickedColumn -1.
@@ -265,7 +309,36 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 		head.Children(func() {
 			heads := cells(RoleColumnHeader, func(j int) {
 				col := &columns[j]
-				coreText(c, col.Title).SingleLine().FontWeight(600).TextColor(t.TextMuted)
+				ink, typeInk := t.TextMuted, t.Accent
+				if s.HeaderSelect && slices.Contains(s.ColumnSelection, col.id()) {
+					ink, typeInk = t.AccentText, t.AccentText
+				}
+				if col.Subtitle == "" && col.HeaderDetail == "" {
+					coreText(c, col.Title).SingleLine().FontWeight(600).TextColor(ink)
+				} else {
+					// Draw both labels inside the original keyed header cell: a
+					// single element still owns drag/resize, horizontal scroll,
+					// sorting and HeaderMenu. Never float a second row above it.
+					coreColumn(c).Gap(t.Space(0.5)).MinWidth(0).Grow(1).Children(func() {
+						coreRow(c).MinWidth(0).Gap(t.Space(1)).AlignItems(Center).Children(func() {
+							coreText(c, col.Title).SingleLine().FontWeight(600).TextColor(ink)
+							if col.HeaderBadge != "" {
+								coreText(c, col.HeaderBadge).SingleLine().FontSize(t.FontSize * 0.7).TextColor(typeInk)
+							}
+						})
+						if col.Subtitle != "" {
+							coreRow(c).MinWidth(0).Gap(t.Space(1)).AlignItems(Center).Children(func() {
+								if col.SubtitleIcon != "" {
+									coreText(c, col.SubtitleIcon).SingleLine().FontSize(t.FontSize * 0.8).FontWeight(600).TextColor(typeInk)
+								}
+								coreText(c, col.Subtitle).SingleLine().FontSize(t.FontSize * 0.8).TextColor(ink)
+							})
+						}
+						if col.HeaderDetail != "" {
+							coreText(c, strings.NewReplacer("\r", " ", "\n", " ").Replace(col.HeaderDetail)).SingleLine().FontSize(t.FontSize * 0.8).TextColor(ink)
+						}
+					})
+				}
 				if at, descending := s.sortPlace(col); at >= 0 {
 					place := 0
 					if s.SortBy != nil && len(*s.SortBy) > 1 {
@@ -278,7 +351,7 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				if cellSel {
 					s.tableCols[k].head = heads[k].id
 				}
-				tableHeader(c, table, heads[k], j, s, drag, heads, order, columns)
+				tableHeader(c, table, heads[k], j, s, drag, heads, order, columns, n)
 			}
 		})
 		coreDivider(c)
@@ -290,6 +363,13 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 		list.rowMinW = least
 		head.followX = list
 		buildList(c, list, table, s, n, func(i int) {
+			if style := s.TableStyle; style != nil && style.AlternateRowColor.A != 0 &&
+				(int64(i)&1) != (style.RowOffset&1) && (s.Header == nil || !s.Header(i)) &&
+				(cellSel || c.row == nil || !c.row.chosen) {
+				// The list's actual row owns the background, including cell
+				// padding, row headers and remaining horizontal space.
+				c.parent.Background(style.AlternateRowColor)
+			}
 			row := coreRow(c).MinHeight(tableRow).AlignItems(Stretch)
 			// The list's element holding the row is the row.
 			row.Role(RoleNone)
@@ -329,21 +409,46 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 // tableHeader makes the header of columns[j] sort the rows when clicked,
 // move the column when dragged, resize it from its end edge (the right,
 // or the left right to left), and open s.HeaderMenu.
-func tableHeader(c *context, table, h *node, j int, s *ListState, drag *tableDrag, heads []*node, order []int, columns []TableColumn) {
+func tableHeader(c *context, table, h *node, j int, s *ListState, drag *tableDrag, heads []*node, order []int, columns []TableColumn, n int) {
 	t := c.theme
 	col := &columns[j]
 	id := col.id()
 	if menu := s.HeaderMenu; menu != nil {
-		h.ContextMenu(func(m *Menu) { menu(m, j) })
+		h.ContextMenu(func(m *Menu) {
+			if m.run.collect && s.HeaderSelect && !col.RowHeader && !slices.Contains(s.ColumnSelection, id) {
+				s.selectHeaderColumn(table, id, 0, n)
+			}
+			menu(m, j)
+		})
 	}
 	sorts, choosesAll := s.sorts() && col.sortable(), col.RowHeader && s.choosesCells()
-	if sorts || choosesAll {
+	choosesColumn := s.HeaderSelect && s.choosesCells() && !col.RowHeader
+	if sorts || choosesAll || choosesColumn || col.HeaderTooltip != "" || s.HeaderActionMenu != nil {
 		h.flags |= flagClickable | flagHover
 		h.styleFn = func(h *node) {
-			if h.Hovered() {
+			if choosesColumn && slices.Contains(s.ColumnSelection, id) {
+				h.bg = t.Accent
+				h.TextColor(t.AccentText)
+			} else if h.Hovered() {
 				h.bg = t.SurfaceHover
 			}
 		}
+	}
+	if col.HeaderTooltip != "" {
+		h.Tooltip(col.HeaderTooltip)
+	}
+	if menu := s.HeaderActionMenu; menu != nil && !col.RowHeader {
+		// Reserve the same room while hidden so hover never changes widths.
+		h.PaddingEnd(t.Space(9))
+		h.Children(func() {
+			button := coreButtonBase(c).Key("header-actions").Label(col.Title+" actions").
+				Absolute().Top(t.Space(1)).End(t.Space(2.5)).Size(t.Space(6), t.Space(6)).Padding(0)
+			button.Children(func() { coreText(c, "…").SingleLine() })
+			button.Menu(func(m *Menu) { menu(m, j) })
+			if !h.Hovered() && !button.FocusWithin() {
+				button.Opacity(0).PassThrough()
+			}
+		})
 	}
 	if choosesAll {
 		h.afterInput(func() {
@@ -386,7 +491,10 @@ func tableHeader(c *context, table, h *node, j int, s *ListState, drag *tableDra
 		}
 	}
 	h.afterInput(func() {
-		if sorts && h.Clicked() {
+		if choosesColumn && h.Clicked() {
+			s.selectHeaderColumn(table, id, h.ClickModifiers(), n)
+			table.Focus()
+		} else if sorts && h.Clicked() {
 			if s.SortBy != nil {
 				// Cmd-click as Finder, Shift-click as web grids (TanStack
 				// Table, AG Grid, MUI).
@@ -441,6 +549,10 @@ func tableHeader(c *context, table, h *node, j int, s *ListState, drag *tableDra
 			s.setWidth(col, w+dx)
 		}
 		edge.Draw(func(p *Painter, r Rect) {
+			if style := s.TableStyle; style != nil && style.ColumnLines && style.GridColor.A != 0 &&
+				!edge.Hovered() && !edge.Pressed() {
+				return // the full-height header grid already draws this edge
+			}
 			x := r.X + r.W - 0.5
 			if rtl {
 				x = r.X + 0.5
