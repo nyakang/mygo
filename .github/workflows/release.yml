@@ -2,7 +2,8 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    # NyaDB tags publish a Go-only fork; never run upstream npm publishing.
+    tags: ["v*", "!v*-nyadb.*"]
 
 permissions:
   contents: read

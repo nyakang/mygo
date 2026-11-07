@@ -39,6 +39,10 @@ type ListState struct {
 	// Handle names this list independently of its per-pass node.
 	Handle
 
+	// TableStyle optionally decorates a Table or OutlineTable. Nil preserves
+	// the default appearance; ordinary Lists ignore it.
+	TableStyle *TableStyle
+
 	// Key returns an identity for the item row i shows, such as its ID:
 	// comparable, and unique among the rows. Without it, a row is its
 	// index. With it, the state of a row (focus, text being edited, …)
@@ -147,6 +151,19 @@ type ListState struct {
 	// cells in a color of their own, the rest of their rows in a lighter
 	// one, and every other row striped. Its zero value keeps the accent.
 	CellsStyle CellsStyle
+	// HeaderSelect makes ordinary Table headers choose whole columns instead
+	// of sorting on click. It requires CellSelect and Selection. Sorting still
+	// displays its arrows, and can be changed explicitly by the application.
+	HeaderSelect bool
+	// ColumnSelection holds whole columns chosen by their IDs. Nil uses Cells'
+	// ordinary range; a non-nil slice is a whole-column selection, including
+	// on a zero-row table. The table reconciles it with visible columns.
+	// Clear it when assigning Cells directly to return to a cell range.
+	ColumnSelection []string
+	// OnCellClick runs after a primary, undragged pointer click has chosen its
+	// cell. row and col are the cell builder's indices; mods are the click's
+	// modifiers. It does not run for row headers, section headers or keys.
+	OnCellClick func(row, col int, mods Modifiers)
 	// Sort, when set, is the column a Table's rows are sorted by: a click
 	// on the header of a Sortable column sorts by it, ascending, and
 	// another reverses the order, which the header shows. Sort the rows as
@@ -183,6 +200,10 @@ type ListState struct {
 	// title and the sort arrow, as a mark, and it may give the cell a
 	// tooltip or a card of its own. col is as HeaderMenu's.
 	HeaderCell func(cell Element, col int)
+	// HeaderActionMenu adds a separate, hover-revealed menu button inside an
+	// ordinary column header. Its col is the original Table column index.
+	// Opening it preserves the selection and never sorts or drags a column.
+	HeaderActionMenu func(m *Menu, col int)
 	// CellMenu, when set, gives a Table's cells a context menu, built as
 	// ContextMenu's is, over the whole cell with its padding: row and col
 	// are as the cell builder receives them. A menu built without items
@@ -279,6 +300,10 @@ type ListState struct {
 	// tableCols are the columns of the Table choosing cells (CellSelect)
 	// in the order shown, in this frame.
 	tableCols []tableCol
+	// headerPivot and headerBase retain the last explicit header click and
+	// the selection before a sequence of Shift header extensions.
+	headerPivot string
+	headerBase  []string
 }
 
 // listRequest is where the app or the user asked the list to go: to row
@@ -502,7 +527,7 @@ func buildList(c *context, e, owner *node, s *ListState, n int, row func(i int),
 	flat, tree := kind == tableList || kind == treeTableList, kind == treeList || kind == treeTableList
 	rt := c.rt
 	f := &s.frame
-	if f.e != nil && f.frame == rt.frame && f.pass == rt.pass {
+	if f.c == c && f.e != nil && f.frame == rt.frame && f.pass == rt.pass {
 		panic("ui: a ListState shown by two Lists")
 	}
 	if rt.listMenu == nil {
@@ -1209,6 +1234,9 @@ func (f *listFrame) page(d int) int {
 // navigate moves the choice with the keys, past headers.
 func (f *listFrame) navigate() {
 	o, n, sel, s := f.owner, f.n, f.s.cursor(), f.s
+	if focus := f.c.rt.states[f.c.rt.focused]; s.HeaderSelect && focus != nil && focus.flags&flagMenuButton != 0 {
+		return // A header menu button owns Enter, Space and Down itself.
+	}
 	multi, mac := s.Selection != nil, runtime.GOOS == "darwin"
 	if s.Label != nil {
 		o.flags |= flagTypeSelect

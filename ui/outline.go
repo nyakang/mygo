@@ -5,6 +5,15 @@ import (
 	"time"
 )
 
+// OutlineDisclosure selects the expand/collapse indicator visual.
+// The default keeps the original stroked chevron.
+type OutlineDisclosure uint8
+
+const (
+	OutlineChevron OutlineDisclosure = iota
+	OutlineTriangle
+)
+
 // OutlineState is the state of an Outline or an OutlineTable: its rows, as
 // a List's, and the items that are open, showing their children. The rows'
 // keys are the items, of type K, so that their place, choice and state
@@ -34,7 +43,19 @@ type OutlineState[K comparable] struct {
 	// Outline's rows then have neither padding nor a gap, and center
 	// what they hold; an OutlineTable's first cells keep their padding.
 	Prefix func(r OutlineRow)
-	rows   []outlineRow[K]
+	// LeadingInset reserves space before the root disclosure on every row,
+	// leaving the full selected-row background untouched. Zero means none.
+	LeadingInset float32
+	// RowContextMenu handles a context click anywhere across an Outline
+	// row, including its indentation/disclosure gutter and blank trailing area.
+	// A child widget's own context menu takes precedence when present.
+	RowContextMenu func(item K, menu *Menu)
+	// Disclosure chooses the indicator shape (chevron by default).
+	Disclosure OutlineDisclosure
+	// DisclosureSize sets its clickable gutter width/height in DIPs; zero
+	// keeps Space(4) from the theme. Negative values are invalid.
+	DisclosureSize float32
+	rows           []outlineRow[K]
 }
 
 // OutlineRow is a row of an outline as its Prefix builds it, while it
@@ -87,8 +108,8 @@ func (s *OutlineState[K]) Depth(row int) int { return s.rows[row].depth }
 // flatten lists the rows the outline shows: roots, and the children of
 // the items open.
 func (s *OutlineState[K]) flatten(roots []K, children func(K) []K) {
-	if !(s.Indent >= 0) {
-		panic("ui: an OutlineState's Indent must not be negative")
+	if !(s.Indent >= 0 && s.DisclosureSize >= 0 && s.LeadingInset >= 0) {
+		panic("ui: an OutlineState's Indent, DisclosureSize and LeadingInset must not be negative")
 	}
 	s.rows = s.rows[:0]
 	var walk func(items []K, depth, parent int)
@@ -151,6 +172,10 @@ func coreOutline[K comparable](c *context, s *OutlineState[K], roots []K, childr
 			r.Gap(c.theme.Space(1)).Padding(c.theme.Space(1), c.theme.Space(2))
 		}
 		r.Role(RoleNone)
+		if s.RowContextMenu != nil {
+			key := s.rows[i].item
+			r.ContextMenu(func(m *Menu) { s.RowContextMenu(key, m) })
+		}
 		r.Children(func() { s.prefix(c, i, children, func() { row(s.rows[i].item) }) })
 	}, treeList)
 	e.afterInput(func() { s.keys(e, children) })
@@ -238,6 +263,11 @@ func (s *OutlineState[K]) prefix(c *context, i int, children func(K) []K, conten
 		content()
 		return
 	}
+	if s.LeadingInset > 0 {
+		// The row's inter-item gap contributes Space(1); do not count
+		// it twice when reserving this fixed disclosure gutter.
+		coreBox(c).Width(max(0, s.LeadingInset-t.Space(1))).Shrink(0)
+	}
 	if r.depth > 0 {
 		indent := s.Indent
 		if indent == 0 {
@@ -245,15 +275,37 @@ func (s *OutlineState[K]) prefix(c *context, i int, children func(K) []K, conten
 		}
 		coreBox(c).Width(float32(r.depth) * indent).Shrink(0)
 	}
-	a := arrow().Size(t.Space(4), t.Space(4))
+	arrowSize := t.Space(4)
+	if s.DisclosureSize > 0 {
+		arrowSize = s.DisclosureSize
+	}
+	a := arrow().Size(arrowSize, arrowSize)
 	if r.branch {
 		turn := a.Animate("open", 90*b2f(open), 150*time.Millisecond)
 		rtl := a.rtl()
 		a.Draw(func(p *Painter, rect Rect) {
-			p.StrokePath(disclosurePath(rect, turn, rtl), 1.5, arrowColor(t, item))
+			if s.Disclosure == OutlineTriangle {
+				p.FillPath(outlineTrianglePath(rect, turn, rtl), arrowColor(t, item))
+			} else {
+				p.StrokePath(disclosurePath(rect, turn, rtl), 1.5, arrowColor(t, item))
+			}
 		})
 	}
 	content()
+}
+
+// outlineTrianglePath draws a small solid arrow inside its larger clickable
+// gutter, rotating right to down on expand and mirroring in RTL layouts.
+func outlineTrianglePath(r Rect, deg float32, rtl bool) *Path {
+	cx, cy, d := r.X+r.W/2, r.Y+r.H/2, min(r.W, r.H)*0.32
+	s := float32(1)
+	if rtl {
+		s, deg = -1, -deg
+	}
+	at := rotate(cx, cy, deg)
+	var path Path
+	path.MoveTo(at(-s*d, -0.88*d)).LineTo(at(s*d, 0)).LineTo(at(-s*d, 0.88*d)).Close()
+	return &path
 }
 
 // closed moves the choice to row i as it closes, from a row inside it,

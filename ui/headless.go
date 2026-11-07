@@ -573,16 +573,28 @@ func (t *Tester) HasText(s string) bool {
 // targetCenter checks the named element before sending any input. Labels
 // include clipped boxes, and a visible box may be covered by another control.
 func (t *Tester) targetCenter(s string, button int) (float32, float32, error) {
-	var n *labelNode
+	var firstError error
 	for i := range t.rt.labels {
 		if t.rt.labels[i].text == s {
-			n = &t.rt.labels[i]
-			break
+			x, y, err := t.targetLabelCenter(&t.rt.labels[i], s, button)
+			if err == nil {
+				return x, y, nil
+			}
+			if firstError == nil {
+				firstError = err
+			}
 		}
 	}
-	if n == nil {
-		return 0, 0, fmt.Errorf("ui: no element shows %q", s)
+	if firstError != nil {
+		return 0, 0, firstError
 	}
+	return 0, 0, fmt.Errorf("ui: no element shows %q", s)
+}
+
+// Repeated captions can name a disabled background control, a form label,
+// and the modal's actionable control. Every candidate still has to reach
+// its own input target; never send a click to a covered or clipped one.
+func (t *Tester) targetLabelCenter(n *labelNode, s string, button int) (float32, float32, error) {
 	r, z := n.r, t.rt.zoomFactor()
 	cx, cy := r.X+r.W/2, r.Y+r.H/2
 	x, y := cx*z, cy*z
